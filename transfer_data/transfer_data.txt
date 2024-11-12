@@ -1,0 +1,42 @@
+-- Bật Event Scheduler nếu chưa bật
+SET GLOBAL event_scheduler = ON;
+
+-- Tạo event để tự động chạy mỗi ngày vào lúc 3 giờ sáng
+CREATE EVENT IF NOT EXISTS transfer_data_to_dw
+ON SCHEDULE EVERY 1 DAY
+STARTS '2024-11-12 03:00:00'
+DO
+BEGIN
+    -- 1. Xử lý dữ liệu thay đổi và lặp
+    -- Truy vấn để cập nhật dữ liệu mới và thay đổi vào bảng product_dim
+    INSERT INTO datawarehouse.product_dim (
+        product_id, name, price, price_sale, brand, color, size, status, 
+        description_part1, description_part2, description_part3, created_at, last_modified
+    )
+    SELECT 
+        p.id, p.name, 
+        p.price, 
+        p.priceSale, 
+        p.brand, p.color, p.size, p.status, 
+        p.description_part1, p.description_part2, p.description_part3, 
+        NOW(), NOW()
+    FROM 
+        staging.bikes p
+    WHERE 
+        p.price IS NOT NULL OR p.priceSale IS NOT NULL  -- Xử lý thay đổi giá
+    ON DUPLICATE KEY UPDATE
+        price = VALUES(price), 
+        price_sale = VALUES(price_sale), 
+        name = VALUES(name),
+        color = VALUES(color),
+        size = VALUES(size),
+        status = VALUES(status),
+        description_part1 = VALUES(description_part1),
+        description_part2 = VALUES(description_part2),
+        description_part3 = VALUES(description_part3),
+        last_modified = CURRENT_TIMESTAMP;
+
+    -- 2. Xử lý xóa dữ liệu không còn trong staging
+    DELETE FROM datawarehouse.product_dim
+    WHERE product_id NOT IN (SELECT id FROM staging.bikes);
+END;
